@@ -1,4 +1,4 @@
-module github.com/rokkerruslan/tcp
+module github.com/rokkerruslan/netstack
 
 go 1.28
 
