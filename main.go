@@ -13,6 +13,7 @@ import (
 func main() {
 	name := flag.String("i", "tun0", "interface name")
 	reflect := flag.Bool("nat", false, "swap source and destination addresses and send packets back to the kernel")
+	proxyMode := flag.Bool("proxy", false, "accept TCP connections and open them back to the kernel")
 	flag.Parse()
 
 	iface, err := tuntap.New(tuntap.Opts{Name: *name, Mode: tuntap.Tun})
@@ -23,6 +24,11 @@ func main() {
 
 	log.Printf("listening on %s", iface.Name())
 
+	var px *proxy
+	if *proxyMode {
+		px = newProxy(iface)
+	}
+
 	// Big enough for any packet.
 	buf := make([]byte, 65535)
 	for {
@@ -31,6 +37,17 @@ func main() {
 			log.Fatalf("read: %v", err)
 		}
 		p := buf[:n]
+
+		if px != nil {
+			seg, err := parseSegment(p)
+			if err != nil {
+				fmt.Println(describe(p))
+				continue
+			}
+			fmt.Println("<-", seg)
+			px.handle(seg)
+			continue
+		}
 
 		if !*reflect {
 			fmt.Println(describe(p))
