@@ -44,8 +44,11 @@ func (p *proxy) handle(seg segment) {
 	case synReceived:
 		p.synReceived(t, seg)
 		return
-	case established, finWait1, finWait2, closeWait, closing, lastAck:
-		// TODO: check seq, process ACK and data, send data to peer, handle FIN.
+	case established:
+		p.established(t, seg)
+		return
+	case finWait1, finWait2, closeWait, closing, lastAck:
+		// TODO: connection close.
 	}
 	log.Printf("%s %s: not implemented", t.key.remote, t.state)
 }
@@ -144,6 +147,33 @@ func (p *proxy) synReceived(t *tcb, seg segment) {
 	t.state = established
 
 	// TODO: the ACK can carry data, process it as in ESTABLISHED.
+}
+
+// established handles a segment in ESTABLISHED (RFC 9293, 3.10.7.4).
+func (p *proxy) established(t *tcb, seg segment) {
+	// Accept only the next segment in order (no reordering).
+	// Otherwise drop it and send ACK to tell the peer which byte
+	// we expect (RFC 9293, 3.10.7.4).
+	//
+	// TODO: RFC says do not send this ACK if the segment has RST.
+	if seg.seq != t.rcvNxt {
+		p.send(t, flagACK, nil)
+		return
+	}
+
+	// TODO: RST, SYN, ACK processing (sndUna, window), FIN.
+
+	if len(seg.payload) == 0 {
+		return
+	}
+	t.rcvNxt += uint32(len(seg.payload))
+	p.send(t, flagACK, nil)
+
+	// Send data to peer as is. It always fits peer MSS: the kernel
+	// sends us at most 536 bytes, because we send no MSS option.
+	//
+	// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
+	p.send(t.peer, flagACK|flagPSH, seg.payload)
 }
 
 // peerMSS returns the MSS from a SYN segment, or the default.
