@@ -173,7 +173,8 @@ func (p *proxy) established(t *tcb, seg segment) {
 	// sends us at most 536 bytes, because we send no MSS option.
 	//
 	// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
-	p.send(t.peer, flagACK|flagPSH, seg.payload)
+	// TODO: when to set PSH, clarify the semantics later.
+	p.send(t.peer, flagACK, seg.payload)
 }
 
 // peerMSS returns the MSS from a SYN segment, or the default.
