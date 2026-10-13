@@ -88,8 +88,8 @@ func (p *proxy) accept(seg segment) {
 	out.sndUna = out.iss
 	out.sndNxt = out.iss
 
-	in.peer = out
-	out.peer = in
+	in.pair = out
+	out.pair = in
 	p.conns[in.key] = in
 	p.conns[out.key] = out
 
@@ -131,7 +131,7 @@ func (p *proxy) synSent(t *tcb, seg segment) {
 	t.state = established
 
 	// out is ready, answer in. in stays in SYN-RECEIVED until its ACK.
-	p.send(t.peer, flagSYN|flagACK, nil)
+	p.send(t.pair, flagSYN|flagACK, nil)
 }
 
 // synReceived handles a segment on in while we wait for the ACK
@@ -181,12 +181,12 @@ func (p *proxy) established(t *tcb, seg segment) {
 		// The data always fits peer MSS: we send no MSS option,
 		// so the kernel sends us at most 536 bytes.
 		//
-		// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
+		// TODO: respect peer window (sndUna, sndWnd), keep the rest in pair.out.
 		// TODO: we ACK the sender before the peer ACKs the data. If the peer
 		// drops it (e.g. its window is full), the data is lost. Keep a copy
 		// until the peer ACKs.
 		// TODO: when to set PSH, clarify the semantics later.
-		p.send(t.peer, flagACK, seg.payload)
+		p.send(t.pair, flagACK, seg.payload)
 	}
 
 	if fin {
@@ -194,8 +194,8 @@ func (p *proxy) established(t *tcb, seg segment) {
 		t.rcvNxt++
 		t.state = closeWait
 
-		// The sender has no more data, so the peer gets no more data.
-		p.close(t.peer)
+		// No more data from the sender, so close the pair.
+		p.close(t.pair)
 	}
 
 	// ACK data and FIN to the sender in one segment.
@@ -258,7 +258,7 @@ func (p *proxy) finWait2(t *tcb, seg segment) {
 	// No TIME-WAIT: the side is closed right away.
 	t.state = closed
 
-	p.close(t.peer)
+	p.close(t.pair)
 
 	// TODO: delete both TCBs when both sides are closed.
 }

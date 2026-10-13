@@ -95,9 +95,9 @@ type tcb struct {
 
 	mss uint16 // peer max segment size
 
-	// peer is the other side of the proxy.
-	peer *tcb
+	// pair is the other side of the proxy.
+	pair *tcb
 
-	// out holds data from peer that does not fit into sndWnd yet.
+	// out holds data from pair that does not fit into sndWnd yet.
 	out []byte
 }
