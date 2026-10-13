@@ -24,6 +24,10 @@ func main() {
 
 	log.Printf("listening on %s", iface.Name())
 
+	// TODO: on stop (Ctrl+C) send RST to both sides of every connection,
+	// not FIN: FIN says "all data is sent", a client can take cut data
+	// as complete. Maybe later: graceful stop, accept no new SYN, wait
+	// for open connections to close, then RST the rest.
 	var px *proxy
 	if *proxyMode {
 		px = newProxy(iface)

@@ -162,20 +162,58 @@ func (p *proxy) established(t *tcb, seg segment) {
 		return
 	}
 
-	// TODO: RST, SYN, ACK processing (sndUna, window), FIN.
+	// TODO: RST, SYN, ACK processing (sndUna, window).
 
-	if len(seg.payload) == 0 {
+	fin := seg.flags&flagFIN != 0
+	if len(seg.payload) == 0 && !fin {
 		return
 	}
-	t.rcvNxt += uint32(len(seg.payload))
-	p.send(t, flagACK, nil)
 
-	// The data always fits peer MSS: we send no MSS option,
-	// so the kernel sends us at most 536 bytes.
-	//
-	// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
-	// TODO: when to set PSH, clarify the semantics later.
-	p.send(t.peer, flagACK, seg.payload)
+	if len(seg.payload) > 0 {
+		t.rcvNxt += uint32(len(seg.payload))
+
+		// The data always fits peer MSS: we send no MSS option,
+		// so the kernel sends us at most 536 bytes.
+		//
+		// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
+		// TODO: we ACK the sender before the peer ACKs the data. If the peer
+		// drops it (e.g. its window is full), the data is lost. Keep a copy
+		// until the peer ACKs.
+		// TODO: when to set PSH, clarify the semantics later.
+		p.send(t.peer, flagACK, seg.payload)
+	}
+
+	if fin {
+		// FIN takes one seq number, after the data.
+		t.rcvNxt++
+		t.state = closeWait
+
+		// The sender has no more data, so the peer gets no more data.
+		p.close(t.peer)
+	}
+
+	// ACK data and FIN to the sender in one segment.
+	p.send(t, flagACK, nil)
+}
+
+// close sends FIN on t (RFC 9293, 3.10.4).
+//
+// FIN must go after all data sent on t. It holds now: we have no
+// buffer, the data is sent right away.
+// TODO: with a buffer, send FIN only when t.out is empty.
+func (p *proxy) close(t *tcb) {
+	switch t.state {
+	case established:
+		p.send(t, flagFIN|flagACK, nil)
+		t.state = finWait1
+		return
+	case synReceived:
+		// TODO: send FIN, go to FIN-WAIT-1. Happens when the server
+		// closes before in gets the ACK of our SYN-ACK.
+	case closeWait:
+		// TODO: send FIN, go to LAST-ACK.
+	}
+	log.Printf("%s %s: close not implemented", t.key.remote, t.state)
 }
 
 func peerMSS(seg segment) uint16 {
