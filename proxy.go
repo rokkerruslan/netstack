@@ -46,7 +46,13 @@ func (p *proxy) handle(seg segment) {
 	case established:
 		p.established(t, seg)
 		return
-	case finWait1, finWait2, closeWait, closing, lastAck:
+	case finWait1:
+		p.finWait1(t, seg)
+		return
+	case finWait2:
+		p.finWait2(t, seg)
+		return
+	case closeWait, closing, lastAck:
 		// TODO: connection close.
 	}
 	log.Printf("%s %s: not implemented", t.key.remote, t.state)
@@ -196,6 +202,67 @@ func (p *proxy) established(t *tcb, seg segment) {
 	p.send(t, flagACK, nil)
 }
 
+// finWait1 handles a segment after we sent FIN on t
+// (RFC 9293, 3.10.7.4).
+func (p *proxy) finWait1(t *tcb, seg segment) {
+	if seg.seq != t.rcvNxt {
+		log.Printf("%s %s: unexpected segment, dropped", t.key.remote, t.state)
+		return
+	}
+
+	// FIN is the last seq we sent, so ack == sndNxt means FIN is acked.
+	if seg.flags&flagACK != 0 && seg.ack == t.sndNxt {
+		t.state = finWait2
+	}
+
+	if seg.flags&flagFIN == 0 {
+		// TODO: data: the peer can still send, forward it as in ESTABLISHED.
+		// Now it is lost.
+		return
+	}
+
+	// The peer can ACK our FIN and send its FIN in one segment.
+	if t.state == finWait2 {
+		p.finWait2(t, seg)
+		return
+	}
+
+	// TODO: FIN before the ACK of our FIN (both sides close at once):
+	// go to CLOSING.
+	log.Printf("%s %s: FIN before ACK of our FIN, not implemented", t.key.remote, t.state)
+}
+
+// finWait2 handles a segment after our FIN is acked: we wait for
+// the peer FIN (RFC 9293, 3.10.7.4).
+func (p *proxy) finWait2(t *tcb, seg segment) {
+	if seg.seq != t.rcvNxt {
+		log.Printf("%s %s: unexpected segment, dropped", t.key.remote, t.state)
+		return
+	}
+
+	// TODO: data: the peer can still send, forward it as in ESTABLISHED.
+	// Now it is lost. A FIN with data is dropped too: its seq is after
+	// the data, and we do not take the data.
+	if len(seg.payload) > 0 {
+		log.Printf("%s %s: data not implemented, dropped", t.key.remote, t.state)
+		return
+	}
+
+	if seg.flags&flagFIN == 0 {
+		return
+	}
+
+	t.rcvNxt++
+	p.send(t, flagACK, nil)
+
+	// No TIME-WAIT: the side is closed right away.
+	t.state = closed
+
+	p.close(t.peer)
+
+	// TODO: delete both TCBs when both sides are closed.
+}
+
 // close sends FIN on t (RFC 9293, 3.10.4).
 //
 // FIN must go after all data sent on t. It holds now: we have no
@@ -211,7 +278,9 @@ func (p *proxy) close(t *tcb) {
 		// TODO: send FIN, go to FIN-WAIT-1. Happens when the server
 		// closes before in gets the ACK of our SYN-ACK.
 	case closeWait:
-		// TODO: send FIN, go to LAST-ACK.
+		p.send(t, flagFIN|flagACK, nil)
+		t.state = lastAck
+		return
 	}
 	log.Printf("%s %s: close not implemented", t.key.remote, t.state)
 }
