@@ -25,7 +25,6 @@ func newProxy(iface *tuntap.Interface) *proxy {
 	return &proxy{iface: iface, conns: make(map[key]*tcb)}
 }
 
-// handle processes one incoming segment.
 func (p *proxy) handle(seg segment) {
 	t, ok := p.conns[key{local: seg.dst, remote: seg.src}]
 	if !ok {
@@ -53,10 +52,8 @@ func (p *proxy) handle(seg segment) {
 	log.Printf("%s %s: not implemented", t.key.remote, t.state)
 }
 
-// accept creates the in TCB for a SYN and opens
-// the out connection back to the kernel.
-// We answer in with SYN-ACK only after out
-// is established.
+// accept does not answer in yet. in gets SYN-ACK only after
+// out is established, see synSent.
 func (p *proxy) accept(seg segment) {
 	in := &tcb{
 		key:    key{local: seg.dst, remote: seg.src},
@@ -97,8 +94,6 @@ func (p *proxy) accept(seg segment) {
 // synSent handles a segment on out while we wait for SYN-ACK
 // (RFC 9293, 3.10.7.3).
 func (p *proxy) synSent(t *tcb, seg segment) {
-	// The segment must acknowledge our SYN.
-	//
 	// TODO: simultaneous open. A SYN without ACK means the other side
 	// also opens the connection. RFC says: go to SYN-RECEIVED and send
 	// SYN-ACK. The other side of out is a listening socket, it never
@@ -134,7 +129,6 @@ func (p *proxy) synSent(t *tcb, seg segment) {
 // synReceived handles a segment on in while we wait for the ACK
 // of our SYN-ACK (RFC 9293, 3.10.7.4).
 func (p *proxy) synReceived(t *tcb, seg segment) {
-	// The segment must be next in order and acknowledge our SYN.
 	if seg.seq != t.rcvNxt || seg.flags&flagACK == 0 || seg.ack != t.sndNxt {
 		log.Printf("%s %s: unexpected segment, dropped", t.key.remote, t.state)
 		return
@@ -151,9 +145,8 @@ func (p *proxy) synReceived(t *tcb, seg segment) {
 
 // established handles a segment in ESTABLISHED (RFC 9293, 3.10.7.4).
 func (p *proxy) established(t *tcb, seg segment) {
-	// Accept only the next segment in order (no reordering).
-	// Otherwise drop it and send ACK to tell the peer which byte
-	// we expect (RFC 9293, 3.10.7.4).
+	// No reordering: drop the segment. The ACK tells the peer
+	// which byte we expect.
 	//
 	// TODO: RFC says do not send this ACK if the segment has RST.
 	if seg.seq != t.rcvNxt {
@@ -169,15 +162,14 @@ func (p *proxy) established(t *tcb, seg segment) {
 	t.rcvNxt += uint32(len(seg.payload))
 	p.send(t, flagACK, nil)
 
-	// Send data to peer as is. It always fits peer MSS: the kernel
-	// sends us at most 536 bytes, because we send no MSS option.
+	// The data always fits peer MSS: we send no MSS option,
+	// so the kernel sends us at most 536 bytes.
 	//
 	// TODO: respect peer window (sndUna, sndWnd), keep the rest in peer.out.
 	// TODO: when to set PSH, clarify the semantics later.
 	p.send(t.peer, flagACK, seg.payload)
 }
 
-// peerMSS returns the MSS from a SYN segment, or the default.
 func peerMSS(seg segment) uint16 {
 	if seg.mss == 0 {
 		return defaultMSS
@@ -185,8 +177,7 @@ func peerMSS(seg segment) uint16 {
 	return seg.mss
 }
 
-// send builds a segment from t and writes it to the interface.
-// It moves sndNxt forward by the data length, plus one for SYN and FIN.
+// send moves sndNxt forward by the data length, plus one for SYN and FIN.
 func (p *proxy) send(t *tcb, flags uint8, payload []byte) {
 	seg := segment{
 		src:     t.key.local,

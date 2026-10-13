@@ -97,7 +97,6 @@ func nat(p []byte) bool {
 	return true
 }
 
-// describe returns a short description of an IP packet.
 func describe(p []byte) string {
 	if len(p) < 1 {
 		return "empty packet"

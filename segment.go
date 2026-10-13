@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// TCP flags.
 const (
 	flagFIN = 1 << 0
 	flagSYN = 1 << 1
@@ -20,19 +19,20 @@ const (
 // defaultMSS is used when the peer does not send the MSS option (RFC 9293, 3.7.1).
 const defaultMSS = 536
 
-// segment is a parsed TCP segment inside an IPv4 packet.
 type segment struct {
-	src     netip.AddrPort
-	dst     netip.AddrPort
-	seq     uint32
-	ack     uint32
-	flags   uint8
-	wnd     uint16
-	mss     uint16 // 0 if there is no MSS option
+	src   netip.AddrPort
+	dst   netip.AddrPort
+	seq   uint32
+	ack   uint32
+	flags uint8
+	wnd   uint16
+	mss   uint16 // 0 if there is no MSS option
+
+	// payload points into the read buffer. It is valid only until
+	// the next read. Copy it to keep it longer.
 	payload []byte
 }
 
-// parseSegment parses an IPv4 packet with a TCP segment.
 // Checksums are not checked: packets come from the local kernel.
 //
 // TCP header (RFC 9293), byte offsets on the left:
@@ -83,7 +83,6 @@ func parseSegment(p []byte) (segment, error) {
 	}, nil
 }
 
-// parseMSS returns the MSS option value, or 0 if there is none.
 func parseMSS(opts []byte) uint16 {
 	for len(opts) > 0 {
 		switch kind := opts[0]; kind {

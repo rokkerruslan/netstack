@@ -53,7 +53,6 @@ fi
 name="${1:-tun0}"
 cidr="${2:-10.0.0.1/24}"
 
-# in_ns runs a command in the namespace, if one is set.
 in_ns() {
 	if [[ -n $ns ]]; then
 		ip netns exec "$ns" "$@"
