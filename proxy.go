@@ -55,6 +55,8 @@ func (p *proxy) handle(seg segment) {
 // accept does not answer in yet. in gets SYN-ACK only after
 // out is established, see synSent.
 func (p *proxy) accept(seg segment) {
+	// TODO: the SYN can carry data and FIN (TCP Fast Open), they are
+	// ignored now. Linux does not send them without TFO.
 	in := &tcb{
 		key:    key{local: seg.dst, remote: seg.src},
 		state:  synReceived,
@@ -129,6 +131,12 @@ func (p *proxy) synSent(t *tcb, seg segment) {
 // synReceived handles a segment on in while we wait for the ACK
 // of our SYN-ACK (RFC 9293, 3.10.7.4).
 func (p *proxy) synReceived(t *tcb, seg segment) {
+	// TODO: RST: the client gave up, close in and out.
+	// TODO: seq != rcvNxt: send ACK. But a repeated SYN that comes
+	// before our SYN-ACK is sent must be dropped, as now.
+	// TODO: bad ack: send RST.
+	// TODO: SYN in the window: RFC says go back to LISTEN. We have no
+	// LISTEN, so close in and out.
 	if seg.seq != t.rcvNxt || seg.flags&flagACK == 0 || seg.ack != t.sndNxt {
 		log.Printf("%s %s: unexpected segment, dropped", t.key.remote, t.state)
 		return
@@ -140,7 +148,7 @@ func (p *proxy) synReceived(t *tcb, seg segment) {
 	t.sndWl2 = seg.ack
 	t.state = established
 
-	// TODO: the ACK can carry data, process it as in ESTABLISHED.
+	// TODO: the ACK can carry data and FIN, process them as in ESTABLISHED.
 }
 
 // established handles a segment in ESTABLISHED (RFC 9293, 3.10.7.4).
